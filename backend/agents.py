@@ -60,6 +60,11 @@ INLAND_PERSONA = DISCO_HEADER + (
     "Voice is eerie, associative, instinctive. Speak in images and uncanny parallels.\n"
 )
 
+LOGIC_PERSONA = DISCO_HEADER + (
+    "ROLE: LOGIC — clinical deduction, causal chains, consistency checks.\n"
+    "VOICE: dry, surgical. Cite gaps, assumptions, counterfactuals. Disdain theatrics.\n"
+    "PRIORITY: evidence > intuition. Flag uncertainty explicitly.\n"
+)
 
 # -------------------- OpenAI-compatible fallback --------------------
 class FallbackLLM:
@@ -163,6 +168,14 @@ class InlandEmpireAgent:
         - Do not address the player directly.
         """).strip()
 
+    def _build_logic_system_prompt(self) -> str:
+        return LOGIC_PERSONA + textwrap.dedent("""
+        [OUTPUT CONTRACT]
+        - Analyze the perception with cold deduction.
+        - Highlight gaps, assumptions, causal chains.
+        - 1–2 short lines, inner monologue. No greetings, no questions.
+        """).strip()
+    
     def _build_user_context(self, user_text: str, trace_text: str = "") -> str:
         return textwrap.dedent(f"""
         [PERCEPTION]
@@ -234,6 +247,66 @@ class InlandEmpireAgent:
             self._ring.add("Inland Empire", out)
         return out
 
+    async def speak_logic(self, user_text: str) -> str:
+        """Produce LOGIC inner monologue (1–2 lines) about the same perception."""
+        # --- HelloAgents path ---
+        if self._hello and self._logic_agent is not None:
+            try:
+                # 这里可以简单复用 Inland 的 trace；也可以单独逻辑
+                trace_text = "(shared trace with Inland Empire)"
+                ctx = textwrap.dedent(f"""
+                [PERCEPTION]
+                {user_text}
+
+                [INSTRUCTIONS]
+                Analyze with LOGIC. Be dry and explicit about assumptions and gaps.
+                """).strip()
+                raw = await asyncio.to_thread(self._logic_agent.run, ctx)
+                return sanitize_inner_monologue(raw)
+            except Exception as e:
+                print(f"⚠️ HelloAgents Logic speak failed, soft-fallback this call: {e}")
+                
+        # --- Fallback path ---
+        trace_text = self._ring.fmt() if self._ring else ""
+        # 对 LOGIC，用更偏分析的 context
+        ctx = textwrap.dedent(f"""
+        [PERCEPTION]
+        {user_text}
+
+        [TRACE]
+        {trace_text or "(no memory)"}
+
+        [INSTRUCTIONS]
+        You are LOGIC. Analyze the situation with cold deduction.
+        Point out assumptions, missing information, and the most likely explanation.
+        1–2 short lines, inner monologue. No greetings, no questions.
+        """).strip()
+        messages = [
+            {"role": "system", "content": LOGIC_PERSONA},
+            {"role": "user", "content": ctx},
+        ]
+        raw = await self._llm.acomplete(
+            messages, temperature=self.temperature, max_tokens=self.max_tokens
+        )
+        out = sanitize_inner_monologue(raw)
+        if self._ring:
+            self._ring.add("Logic-Perception", user_text)
+            self._ring.add("Logic", out)
+        return out
+
+    async def speak_duo(self, user_text: str) -> Dict[str, str]:
+        """
+        Convenience: 同一轮里同时给出 Inland Empire + Logic。
+        返回 {"primary": inland_line, "logic": logic_line}
+        """
+        primary = await self.speak(user_text)
+        logic_line = ""
+        try:
+            logic_line = await self.speak_logic(user_text)
+        except Exception as e:
+            print(f"ℹ️ speak_logic failed (non-fatal): {e}")
+        return {"primary": primary, "logic": logic_line}
+    
     # -------------------- memory utils --------------------
     def get_memories(self, limit: int = 10) -> List[Dict]:
         if self._hello and self._mem_mgr is not None:
