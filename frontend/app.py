@@ -44,6 +44,7 @@ if send and user_text.strip():
         data = r.json()
         st.session_state["last_rendered"] = data.get("rendered", "")
         st.session_state["last_primary"] = data.get("primary", "")
+        st.session_state["last_chorus"] = data.get("chorus", [])
         st.session_state[SESSION_KEY] = data.get("session_id", session_id)
     except Exception as e:
         st.error(f"Call failed: {e}")
@@ -52,6 +53,11 @@ if send and user_text.strip():
 if "last_rendered" in st.session_state:
     st.subheader("Rendered")
     st.code(st.session_state["last_rendered"])
+
+if "last_chorus" in st.session_state and st.session_state["last_chorus"]:
+    st.subheader("Chorus (other skills)")
+    for line in st.session_state["last_chorus"]:
+        st.markdown(f"- {line}")
 
 # Live state on the right column
 st.divider()
