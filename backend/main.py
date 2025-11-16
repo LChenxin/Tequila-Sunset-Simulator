@@ -105,27 +105,37 @@ async def step(req: StepRequest):
     turn = app.state.turns[session_id]
 
     try:
-        primary = await app.state.agent.speak(user_text)
-        if not primary or not str(primary).strip():
+        duo = await app.state.agent.speak_duo(user_text)
+        primary = (duo.get("primary") or "").strip()
+        logic_line = (duo.get("logic") or "").strip()
+        if not primary:
             primary = "A hunch glints and is gone—like light on a broken bottle."
     except Exception as e:
-        # log
-        print(f"⚠️ agent.speak failed: {e}")
+        print(f"⚠️ agent.speak_duo failed: {e}")
         primary = "A cold intuition passes—like a draft under a locked door."
+        logic_line = ""
 
-    rendered = f"— TURN {turn} —\nINLAND EMPIRE: {primary}"
+    # 组装合唱
+    chorus = []
+    if logic_line:
+        chorus.append(f"LOGIC: {logic_line}")
+
+    # 渲染（前端可直接展示）
+    rendered_lines = [f"— TURN {turn} —", f"INLAND EMPIRE: {primary}"]
+    if logic_line:
+        rendered_lines.append(f"LOGIC: {logic_line}")
+    rendered = "\n".join(rendered_lines)
 
     return StepResponse(
         session_id=session_id,
         turn=turn,
         speaker="Inland Empire",
         primary=primary,
-        chorus=[],            # PoC：先空
-        narration=None,       # PoC：先空
-        mood={},              # PoC：先空
+        chorus=chorus,
+        narration=None,
+        mood={},              # 之后可以在这里放情绪
         rendered=rendered,
     )
-
 
 @app.post("/v1/reset")
 async def reset(req: ResetRequest):
